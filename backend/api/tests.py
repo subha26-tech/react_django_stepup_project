@@ -111,7 +111,55 @@ class CartWorkflowTests(TestCase):
             payment_method='RAZORPAY',
             razorpay_order_id='order_payment_test',
             total_amount=Decimal('2799.00'),
+            status='Pending Payment',
+            expected_delivery=None,
+            status_history=[
+                {
+                    'title': 'Order created',
+                    'time': 'Jan 01, 2026 | 01:00 PM',
+                    'description': 'Order placed; awaiting payment.',
+                    'completed': True,
+                    'icon': 'cart',
+                },
+                {'title': 'Order Dispatched', 'time': 'Awaiting dispatch', 'completed': False, 'icon': 'home'},
+                {'title': 'Order in transit', 'time': 'Awaiting transit', 'completed': False, 'icon': 'truck'},
+                {'title': 'Delivered successfully', 'time': 'Not delivered yet', 'completed': False, 'icon': 'check'},
+            ],
         )
+
+    @patch('api.views.razorpay.Client')
+    def test_razorpay_order_waits_for_payment_before_scheduling_delivery(self, client_factory):
+        client_factory.return_value.order.create.return_value = {'id': 'order_created_test'}
+
+        response = self.client.post('/api/orders/create/', {
+            'firstName': 'Shopper',
+            'lastName': 'Test',
+            'email': 'shopper@example.com',
+            'phone': '1234567890',
+            'addressLine': '1 Main Street',
+            'city': 'Tenkasi',
+            'state': 'Tamil Nadu',
+            'pincode': '627811',
+            'payment_method': 'RAZORPAY',
+            'delivery_fees': 0,
+            'total_amount': '2799.00',
+            'items': [{
+                'id': self.product.id,
+                'name': self.product.name,
+                'image': self.product.main_image,
+                'brand': self.brand.name,
+                'size': '41',
+                'quantity': 1,
+                'price': '2799.00',
+            }],
+        }, format='json')
+
+        self.assertEqual(response.status_code, 201)
+        order = Order.objects.get(order_number=response.data['order']['order_number'])
+        self.assertEqual(order.status, 'Pending Payment')
+        self.assertIsNone(order.expected_delivery)
+        self.assertEqual(order.status_history[0]['title'], 'Order created')
+        self.assertIn('awaiting payment', order.status_history[0]['description'])
 
     @patch('api.views.razorpay.Client')
     def test_failed_payment_verification_does_not_confirm_order(self, client_factory):
@@ -153,6 +201,56 @@ class CartWorkflowTests(TestCase):
         self.assertTrue(response.data['success'])
         order.refresh_from_db()
         self.assertEqual(order.payment_status, 'Paid')
+        self.assertEqual(order.status, 'Placed')
+        self.assertTrue(order.expected_delivery)
+
+    @patch('api.views.razorpay.Client')
+    def test_confirmed_failed_payment_marks_order_failed(self, client_factory):
+        order = self.create_razorpay_order()
+        client_factory.return_value.payment.fetch.return_value = {
+            'order_id': order.razorpay_order_id,
+            'status': 'failed',
+            'amount': 279900,
+            'currency': 'INR',
+            'error_description': 'Payment declined',
+        }
+
+        response = self.client.post('/api/orders/razorpay-failed/', {
+            'order_number': order.order_number,
+            'razorpay_order_id': order.razorpay_order_id,
+            'razorpay_payment_id': 'pay_failed',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['success'])
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, 'Failed')
+        self.assertEqual(order.status, 'Payment Failed')
+        self.assertIsNone(order.expected_delivery)
+        self.assertEqual(order.payment_failure_reason, 'Payment declined')
+        self.assertEqual(order.razorpay_payment_id, 'pay_failed')
+        self.assertEqual(order.status_history[-1]['title'], 'Payment failed')
+        self.assertEqual(order.status_history[-1]['description'], 'Payment declined')
+
+    @patch('api.views.razorpay.Client')
+    def test_unconfirmed_failed_payment_does_not_change_order(self, client_factory):
+        order = self.create_razorpay_order()
+        client_factory.return_value.payment.fetch.return_value = {
+            'order_id': order.razorpay_order_id,
+            'status': 'authorized',
+            'amount': 279900,
+            'currency': 'INR',
+        }
+
+        response = self.client.post('/api/orders/razorpay-failed/', {
+            'order_number': order.order_number,
+            'razorpay_order_id': order.razorpay_order_id,
+            'razorpay_payment_id': 'pay_not_failed',
+        }, format='json')
+
+        self.assertEqual(response.status_code, 400)
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, 'Pending')
 
     @patch('api.views.razorpay.Client')
     def test_payment_verification_rejects_mismatched_amount_or_currency(self, client_factory):

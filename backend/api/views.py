@@ -23,6 +23,7 @@ from django.core.mail import send_mail
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.utils.encoding import force_bytes
+from django.utils import timezone
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 import razorpay
 from razorpay.errors import SignatureVerificationError
@@ -229,8 +230,11 @@ class CreateOrderView(APIView):
 
         initial_history = [
             {
-                'title': 'Order Placed',
+                'title': 'Order created' if payment_method == 'RAZORPAY' else 'Order Placed',
                 'time': placed_time,
+                **({
+                    'description': 'Order placed; awaiting payment.'
+                } if payment_method == 'RAZORPAY' else {}),
                 'completed': True,
                 'icon': 'cart'
             },
@@ -289,8 +293,8 @@ class CreateOrderView(APIView):
                 razorpay_order_id=razorpay_order_id,
                 total_amount=total_amount,
                 delivery_fees=delivery_fees,
-                status='Placed',
-                expected_delivery=exp_date,
+                status='Pending Payment' if payment_method == 'RAZORPAY' else 'Placed',
+                expected_delivery=exp_date if payment_method == 'COD' else None,
                 status_history=initial_history
             )
             for item, prod, quantity in validated_items:
@@ -387,10 +391,115 @@ class VerifyRazorpayPaymentView(APIView):
         order.payment_status = 'Paid'
         order.razorpay_payment_id = razorpay_payment_id
         order.razorpay_signature = razorpay_signature
+        now = timezone.localtime()
+        order.expected_delivery = (now + timedelta(days=5)).strftime('Exp : Delivery by %a, %b %d')
+        order.payment_failure_reason = ''
+        apply_order_status(order, 'Placed', previous_status='Pending Payment')
         order.save()
 
         serializer = OrderSerializer(order)
         return Response({'success': True, 'order': serializer.data}, status=status.HTTP_200_OK)
+
+class FailRazorpayPaymentView(APIView):
+    def post(self, request):
+        data = request.data
+        order_number = data.get('order_number')
+        razorpay_order_id = data.get('razorpay_order_id')
+        razorpay_payment_id = data.get('razorpay_payment_id')
+
+        if not all((order_number, razorpay_order_id, razorpay_payment_id)):
+            return Response(
+                {'error': 'Payment failure details are required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            order = Order.objects.get(order_number=order_number)
+        except Order.DoesNotExist:
+            return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if order.payment_method != 'RAZORPAY' or order.razorpay_order_id != razorpay_order_id:
+            return Response({'error': 'Razorpay order ID mismatch'}, status=status.HTTP_400_BAD_REQUEST)
+        if order.payment_status == 'Paid':
+            return Response({'error': 'A paid order cannot be marked as failed'}, status=status.HTTP_400_BAD_REQUEST)
+
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        try:
+            payment = client.payment.fetch(razorpay_payment_id)
+        except razorpay.errors.RazorpayError:
+            logger.exception('Unable to verify failed Razorpay payment for order %s', order_number)
+            return Response(
+                {'error': 'Unable to verify payment failure with Razorpay'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if payment.get('order_id') != razorpay_order_id:
+            return Response(
+                {'error': 'Payment does not belong to this Razorpay order'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if payment.get('status') != 'failed':
+            return Response(
+                {'error': 'Razorpay has not confirmed this payment as failed'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if payment.get('amount') != int(order.total_amount * 100) or payment.get('currency') != 'INR':
+            return Response(
+                {'error': 'Payment amount or currency does not match the order'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment_failure_reason = (
+            payment.get('error_description')
+            or data.get('error_description')
+            or 'Payment could not be completed. Customer can retry.'
+        )
+        if not isinstance(payment_failure_reason, str):
+            payment_failure_reason = 'Payment could not be completed. Customer can retry.'
+        payment_failure_reason = payment_failure_reason.strip()[:1000]
+        if not payment_failure_reason:
+            payment_failure_reason = 'Payment could not be completed. Customer can retry.'
+
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(pk=order.pk)
+            if order.payment_status == 'Paid':
+                return Response(
+                    {'error': 'A paid order cannot be marked as failed'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            history = list(order.status_history or [])
+            if not any(
+                entry.get('title') == 'Payment failed'
+                and entry.get('razorpay_payment_id') == razorpay_payment_id
+                for entry in history
+                if isinstance(entry, dict)
+            ):
+                history.append({
+                    'title': 'Payment failed',
+                    'time': timezone.localtime().strftime('%b %d, %Y | %I:%M %p'),
+                    'description': payment_failure_reason,
+                    'completed': True,
+                    'icon': 'payment_failed',
+                    'razorpay_payment_id': razorpay_payment_id,
+                })
+
+            order.payment_status = 'Failed'
+            order.razorpay_payment_id = razorpay_payment_id
+            order.status = 'Payment Failed'
+            order.expected_delivery = None
+            order.payment_failure_reason = payment_failure_reason
+            order.status_history = history
+            order.save(update_fields=[
+                'payment_status',
+                'razorpay_payment_id',
+                'status',
+                'expected_delivery',
+                'payment_failure_reason',
+                'status_history',
+            ])
+
+        return Response({'success': True, 'order': OrderSerializer(order).data}, status=status.HTTP_200_OK)
 
 class OrderDetailView(APIView):
     authentication_classes = [TokenAuthentication]
@@ -418,6 +527,14 @@ class OrderDetailView(APIView):
 
 class ContactEnquiryView(generics.CreateAPIView):
     serializer_class = ContactEnquirySerializer
+
+class AdminContactEnquiriesView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        enquiries = ContactEnquiry.objects.all().order_by('-created_at')
+        return Response(ContactEnquirySerializer(enquiries, many=True).data)
 
 class NewsletterSubscribeView(APIView):
     def post(self, request):
@@ -733,6 +850,11 @@ class AdminOrdersView(APIView):
         try:
             with transaction.atomic():
                 order = Order.objects.select_for_update().get(pk=order_id)
+                if order.payment_method == 'RAZORPAY' and order.payment_status == 'Failed':
+                    return Response(
+                        {'error': 'Shipment status cannot be changed while Razorpay payment has failed.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 apply_order_status(order, new_status)
                 order.save(update_fields=['status', 'status_history'])
         except Order.DoesNotExist:

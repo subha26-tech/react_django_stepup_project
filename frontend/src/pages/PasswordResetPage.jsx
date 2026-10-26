@@ -30,7 +30,12 @@ export default function PasswordResetPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(isReset ? { uid, token, password } : { email }),
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error('The server returned an invalid response. Please try again.');
+      }
       if (!response.ok) {
         throw new Error(data.error || 'Unable to process your password reset request.');
       }

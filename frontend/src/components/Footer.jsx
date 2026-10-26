@@ -12,7 +12,7 @@ export default function Footer() {
     if (!email) return;
     setLoading(true);
     try {
-      await axios.post('http://127.0.0.1:8000/api/subscribe/', { email });
+      await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/subscribe/`, { email });
       setSubscribed(true);
       setEmail('');
     } catch (err) {

@@ -1,8 +1,8 @@
 from django.urls import path
 from .views import (
     ProductListView, ProductDetailView, CategoryListView,
-    BrandListView, CreateOrderView, VerifyRazorpayPaymentView,
-    OrderDetailView, ContactEnquiryView, NewsletterSubscribeView,
+    BrandListView, CreateOrderView, VerifyRazorpayPaymentView, FailRazorpayPaymentView,
+    OrderDetailView, ContactEnquiryView, AdminContactEnquiriesView, NewsletterSubscribeView,
     AuthLoginView, AuthRegisterView, AuthMeView, PasswordResetRequestView,
     PasswordResetConfirmView, UserOrdersView, AdminOrdersView, CartView
 )
@@ -19,9 +19,11 @@ urlpatterns = [
     path('admin/orders/<int:order_id>/status/', AdminOrdersView.as_view(), name='admin-order-status'),
     path('orders/create/', CreateOrderView.as_view(), name='order-create'),
     path('orders/razorpay-verify/', VerifyRazorpayPaymentView.as_view(), name='razorpay-verify'),
+    path('orders/razorpay-failed/', FailRazorpayPaymentView.as_view(), name='razorpay-failed'),
     path('orders/<str:order_number>/', OrderDetailView.as_view(), name='order-detail'),
 
     path('contact/', ContactEnquiryView.as_view(), name='contact-enquiry'),
+    path('admin/contact-enquiries/', AdminContactEnquiriesView.as_view(), name='admin-contact-enquiries'),
     path('subscribe/', NewsletterSubscribeView.as_view(), name='newsletter-subscribe'),
 
     path('auth/login/', AuthLoginView.as_view(), name='auth-login'),

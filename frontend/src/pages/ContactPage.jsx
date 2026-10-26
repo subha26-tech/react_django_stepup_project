@@ -23,7 +23,7 @@ export default function ContactPage() {
     setSubmitted(false);
     setSubmitError('');
     try {
-      await axios.post('http://127.0.0.1:8000/api/contact/', formData);
+      await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/contact/`, formData);
       setSubmitted(true);
       setFormData({ name: '', email: '', phone: '', message: '' });
     } catch (error) {

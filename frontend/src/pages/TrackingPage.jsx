@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Home, Truck, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Home, Truck, ThumbsUp, X } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
@@ -61,6 +61,8 @@ export default function TrackingPage() {
         return <Home size={22} color={color} />;
       case 'truck':
         return <Truck size={22} color={color} />;
+      case 'payment_failed':
+        return <X size={22} color={color} />;
       case 'check':
       case 'thumbsup':
       default:
@@ -131,8 +133,13 @@ export default function TrackingPage() {
                 {firstItem?.product_name || 'Order details'}
               </p>
               <p style={{ fontSize: '13px', color: '#475569', fontWeight: '500' }}>
-                {order.expected_delivery}
+                {order.expected_delivery || 'Not scheduled until payment is confirmed.'}
               </p>
+              {order.payment_failure_reason && (
+                <p style={{ fontSize: '13px', color: '#b91c1c', marginTop: '6px' }}>
+                  Payment failed: {order.payment_failure_reason}
+                </p>
+              )}
               <p style={{ fontSize: '13px', color: '#1f4747', fontWeight: '700', marginTop: '6px' }}>
                 Current status: {order.status}
               </p>
@@ -146,7 +153,9 @@ export default function TrackingPage() {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             
             {history.map((step, idx) => {
-              const completed = currentStatusIndex >= idx;
+              const completed = typeof step.completed === 'boolean'
+                ? step.completed
+                : currentStatusIndex >= idx;
               const isLast = idx === history.length - 1;
               return (
                 <div key={idx} style={{ display: 'flex', gap: '24px', position: 'relative' }}>

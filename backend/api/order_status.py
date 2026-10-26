@@ -7,6 +7,7 @@ STATUS_STEPS = (
     ('Order in transit', 'truck'),
     ('Delivered successfully', 'check'),
 )
+ORDER_STATUSES = ('Placed', 'Dispatched', 'In Transit', 'Delivered')
 PENDING_STEP_TIMES = (
     '',
     'Awaiting dispatch',
@@ -18,9 +19,12 @@ PENDING_STEP_TIMES = (
 def apply_order_status(order, status, previous_status=None):
     if previous_status is None:
         previous_status = order.status
-    status_choices = [choice[0] for choice in order.STATUS_CHOICES]
-    current_index = status_choices.index(status)
-    previous_index = status_choices.index(previous_status)
+    if status not in ORDER_STATUSES:
+        order.status = status
+        return
+
+    current_index = ORDER_STATUSES.index(status)
+    previous_index = ORDER_STATUSES.index(previous_status) if previous_status in ORDER_STATUSES else -1
     history = list(order.status_history or [])
 
     while len(history) < len(STATUS_STEPS):

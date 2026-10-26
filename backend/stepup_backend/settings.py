@@ -159,6 +159,14 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [FRONTEND_URL]
 CSRF_TRUSTED_ORIGINS = [FRONTEND_URL]
 
+if DEBUG:
+    for local_frontend_origin in (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ):
+        if local_frontend_origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(local_frontend_origin)
+
 
 # Keep anonymous authentication failures bounded without throttling authenticated API users.
 REST_FRAMEWORK = {

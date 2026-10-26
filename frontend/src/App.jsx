@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { CartProvider } from './context/CartContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -12,6 +12,7 @@ import ProductDetailPage from './pages/ProductDetailPage';
 import CartPage from './pages/CartPage';
 import CheckoutPage from './pages/CheckoutPage';
 import OrderCompletionPage from './pages/OrderCompletionPage';
+import PaymentFailedPage from './pages/PaymentFailedPage';
 import TrackingPage from './pages/TrackingPage';
 import LoginPage from './pages/LoginPage';
 import PasswordResetPage from './pages/PasswordResetPage';
@@ -32,6 +33,10 @@ function AppShell() {
   const location = useLocation();
   const isStaffDashboard = user?.is_staff && location.pathname === '/admin';
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname, location.search]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {!isStaffDashboard && <Navbar />}
@@ -45,6 +50,7 @@ function AppShell() {
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/order-success/:orderId" element={<OrderCompletionPage />} />
           <Route path="/order-success" element={<OrderCompletionPage />} />
+          <Route path="/payment-failed" element={<PaymentFailedPage />} />
           <Route path="/tracking/:orderId" element={<TrackingPage />} />
           <Route path="/tracking" element={<TrackingPage />} />
           <Route path="/login" element={<LoginPage />} />

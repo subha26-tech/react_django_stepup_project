@@ -82,6 +82,8 @@ class Order(models.Model):
         ('RAZORPAY', 'Razorpay Online'),
     ]
     STATUS_CHOICES = [
+        ('Pending Payment', 'Pending Payment'),
+        ('Payment Failed', 'Payment Failed'),
         ('Placed', 'Order Placed'),
         ('Dispatched', 'Order Dispatched'),
         ('In Transit', 'Order In Transit'),
@@ -109,12 +111,13 @@ class Order(models.Model):
     razorpay_order_id = models.CharField(max_length=100, blank=True, null=True)
     razorpay_payment_id = models.CharField(max_length=100, blank=True, null=True)
     razorpay_signature = models.CharField(max_length=200, blank=True, null=True)
+    payment_failure_reason = models.TextField(blank=True)
     
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     delivery_fees = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='Placed')
-    expected_delivery = models.CharField(max_length=100, default='Exp : Delivery by sun, May 31')
+    expected_delivery = models.CharField(max_length=100, blank=True, null=True)
     status_history = models.JSONField(default=list, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)

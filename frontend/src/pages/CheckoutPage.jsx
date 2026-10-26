@@ -17,11 +17,11 @@ export default function CheckoutPage() {
     email: user?.email || '',
     phone: '',
     paymentMethod: 'COD', // 'COD' or 'RAZORPAY'
-    addressLine: '2/38, yyyyyyyyyyyy',
-    city: 'Tenkasi',
-    state: 'Tamilnadu',
-    landmark: 'Near Post office',
-    pincode: '627811'
+    addressLine: '',
+    city: '',
+    state: '',
+    landmark: '',
+    pincode: ''
   });
 
   const [loading, setLoading] = useState(false);
@@ -69,6 +69,12 @@ export default function CheckoutPage() {
         return;
       }
 
+      const isRazorpayTestMode = orderData.razorpay_key_id.startsWith('rzp_test_');
+      const phoneDigits = formData.phone.replace(/\D/g, '');
+      const razorpayContact = phoneDigits.length === 10
+        ? `+91${phoneDigits}`
+        : formData.phone.trim();
+
       const options = {
         key: orderData.razorpay_key_id,
         amount: amountInPaise,
@@ -79,7 +85,7 @@ export default function CheckoutPage() {
         order_id: orderData.razorpay_order_id,
         handler: async function (response) {
           try {
-            const verification = await axios.post('http://127.0.0.1:8000/api/orders/razorpay-verify/', {
+            const verification = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/orders/razorpay-verify/`, {
               order_number: orderData.order.order_number,
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
@@ -101,8 +107,9 @@ export default function CheckoutPage() {
         prefill: {
           name: `${formData.firstName} ${formData.lastName}`.trim(),
           email: formData.email,
-          contact: formData.phone
+          contact: razorpayContact,
         },
+        ...(isRazorpayTestMode && { readonly: { contact: true } }),
         theme: {
           color: '#1f4747'
         },
@@ -116,10 +123,30 @@ export default function CheckoutPage() {
       };
 
       const rzp = new window.Razorpay(options);
-      rzp.on('payment.failed', function (response) {
-        setErrorMsg(response.error?.description || 'Payment failed. Choose another payment option and try again.');
-        setStep('payment');
-        setLoading(false);
+      rzp.on('payment.failed', async function (response) {
+        let updatedOrder;
+        let statusUpdateError;
+        try {
+          const result = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/orders/razorpay-failed/`, {
+            order_number: orderData.order.order_number,
+            razorpay_order_id: orderData.razorpay_order_id,
+            razorpay_payment_id: response.error?.metadata?.payment_id,
+            error_description: response.error?.description,
+          });
+          updatedOrder = result.data.order;
+          setLastOrder(updatedOrder);
+        } catch (err) {
+          console.error('Failed to update the order payment status:', err);
+          statusUpdateError = true;
+        } finally {
+          setLoading(false);
+          navigate('/payment-failed', {
+            state: {
+              order: updatedOrder || orderData.order,
+              statusUpdateError,
+            },
+          });
+        }
       });
       rzp.open();
       setLoading(false);
@@ -146,7 +173,7 @@ export default function CheckoutPage() {
     };
 
     try {
-      const res = await axios.post('http://127.0.0.1:8000/api/orders/create/', payload, {
+      const res = await axios.post(`${import.meta.env.VITE_API_BASE_URL}/api/orders/create/`, payload, {
         headers: user?.token ? { Authorization: `Token ${user.token}` } : {},
       });
       const data = res.data;

@@ -75,6 +75,19 @@ class PublicApiQualityTests(TestCase):
         self.assertEqual(self.client.get('/api/categories/').status_code, 200)
         self.assertEqual(self.client.get('/api/brands/').status_code, 200)
 
+    def test_localhost_login_preflight_is_allowed_in_debug_mode(self):
+        response = self.client.options(
+            '/api/auth/login/',
+            HTTP_ORIGIN='http://localhost:5173',
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST',
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS='content-type',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Access-Control-Allow-Origin'],
+            'http://localhost:5173',
+        )
+
     def test_catalog_text_and_category_filters(self):
         for query in ('search=Walking', 'category=mens', 'brand=qa-brand', 'style=Trainer'):
             with self.subTest(query=query):
@@ -110,6 +123,33 @@ class PublicApiQualityTests(TestCase):
         }, format='json')
         self.assertEqual(response.status_code, 201)
         self.assertEqual(ContactEnquiry.objects.count(), 1)
+
+    def test_contact_enquiry_list_is_available_to_staff_only(self):
+        enquiry = ContactEnquiry.objects.create(
+            name='QA Customer',
+            email='qa-customer@example.com',
+            phone='9876543210',
+            message='Please contact me about an order.',
+        )
+        endpoint = '/api/admin/contact-enquiries/'
+        self.assertEqual(self.client.get(endpoint).status_code, 401)
+
+        self.authenticate_as(self.customer)
+        self.assertEqual(self.client.get(endpoint).status_code, 403)
+
+        staff = User.objects.create_user(
+            username='qa-enquiry-staff',
+            email='qa-enquiry-staff@example.com',
+            password='qa-enquiry-staff-password',
+            is_staff=True,
+        )
+        self.authenticate_as(staff)
+        response = self.client.get(endpoint)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['id'], enquiry.id)
+        self.assertEqual(response.data[0]['message'], enquiry.message)
 
     def test_contact_rejects_missing_and_invalid_fields(self):
         missing = self.client.post('/api/contact/', {}, format='json')
@@ -279,6 +319,32 @@ class PublicApiQualityTests(TestCase):
             [step['completed'] for step in updated.data['status_history']],
             [True, True, True, False],
         )
+
+    def test_staff_cannot_change_shipment_status_for_failed_razorpay_order(self):
+        order = self.create_order()
+        order.payment_method = 'RAZORPAY'
+        order.payment_status = 'Failed'
+        order.status = 'Payment Failed'
+        order.save(update_fields=['payment_method', 'payment_status', 'status'])
+
+        staff = User.objects.create_user(
+            username='qa-payment-staff',
+            email='qa-payment-staff@example.com',
+            password='qa-payment-staff-password',
+            is_staff=True,
+        )
+        self.authenticate_as(staff)
+
+        response = self.client.patch(
+            f'/api/admin/orders/{order.pk}/status/',
+            {'status': 'Dispatched'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Razorpay payment has failed', response.data['error'])
+        order.refresh_from_db()
+        self.assertEqual(order.status, 'Payment Failed')
 
     def test_login_uses_django_auth_and_returns_admin_staff_customer_roles(self):
         cache.clear()

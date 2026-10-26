@@ -11,6 +11,8 @@ function StatusBadge({ status }) {
     Dispatched: { bg: '#fef9c3', text: '#854d0e' },
     'In Transit': { bg: '#ffedd5', text: '#9a3412' },
     Delivered: { bg: '#dcfce7', text: '#166534' },
+    'Pending Payment': { bg: '#fef9c3', text: '#854d0e' },
+    'Payment Failed': { bg: '#fee2e2', text: '#b91c1c' },
   };
   const c = colors[status] || { bg: '#f1f5f9', text: '#475569' };
   return (
@@ -79,7 +81,7 @@ export default function ProfilePage() {
       setOrdersError('');
       setOrders([]);
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/orders/', {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/orders/`, {
           headers: { Authorization: `Token ${user.token}` },
         });
         const data = await response.json();
@@ -504,7 +506,9 @@ function OrderCard({ order }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px'
       }}>
         <div>
-          <span style={{ fontSize: '13px', color: '#64748b' }}>{order.expected_delivery}</span>
+          <span style={{ fontSize: '13px', color: '#64748b' }}>
+            {order.expected_delivery || 'Not scheduled until payment is confirmed.'}
+          </span>
           <MiniTracker status={order.status} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>

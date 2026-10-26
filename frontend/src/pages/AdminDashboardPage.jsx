@@ -8,6 +8,7 @@ import {
   Download,
   LayoutDashboard,
   LogOut,
+  MessageSquare,
   Package,
   RefreshCw,
   Search,
@@ -17,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import './AdminDashboardPage.css';
 
 const API_URL = `${import.meta.env.VITE_API_BASE_URL}/api/admin/orders/`;
+const ENQUIRIES_API_URL = `${import.meta.env.VITE_API_BASE_URL}/api/admin/contact-enquiries/`;
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'products', label: 'Product Analysis', icon: Boxes },
@@ -24,9 +26,10 @@ const NAV_ITEMS = [
   { id: 'time', label: 'Time Analysis', icon: CalendarDays },
   { id: 'data', label: 'Data View', icon: BarChart3 },
   { id: 'orders', label: 'Manage Orders', icon: Package },
+  { id: 'enquiries', label: 'Customer Enquiries', icon: MessageSquare },
 ];
 const CHART_COLORS = ['#1f4747', '#2c5e5e', '#5f8b80', '#eab308', '#4385eb', '#ef9b0b'];
-const EMPTY_FILTERS = { category: '', region: '', payment: '', status: '' };
+const EMPTY_FILTERS = { category: '', region: '', payment: '', paymentStatus: '', status: '' };
 
 const formatCurrency = amount =>
   `₹${Number(amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -245,6 +248,8 @@ function ManageOrdersPanel({ orders, token, onOrderUpdated }) {
           {orders.map(order => {
             const selectedStatus = statusChanges[order.id] || order.status;
             const units = getItems(order).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+            const failedRazorpay = order.payment_method === 'RAZORPAY' && order.payment_status === 'Failed';
+            const statusOptions = statuses.includes(order.status) ? statuses : [order.status, ...statuses];
             return (
               <section className="admin-order-row" key={order.id}>
                 <div className="admin-order-summary">
@@ -253,26 +258,62 @@ function ManageOrdersPanel({ orders, token, onOrderUpdated }) {
                   <small>{getOrderDate(order).toLocaleString()} · {units} item(s) · {formatCurrency(order.total_amount)}</small>
                 </div>
                 <div className="admin-order-controls">
-                  <span>Payment: {order.payment_status}</span>
+                  <span>Payment: {order.payment_method} · {order.payment_status}</span>
                   <label htmlFor={`dashboard-status-${order.id}`}>Shipment status</label>
                   <select
                     id={`dashboard-status-${order.id}`}
                     value={selectedStatus}
                     onChange={event => setStatusChanges(current => ({ ...current, [order.id]: event.target.value }))}
+                    disabled={failedRazorpay}
                   >
-                    {statuses.map(status => <option value={status} key={status}>{status}</option>)}
+                    {statusOptions.map(status => <option value={status} key={status}>{status}</option>)}
                   </select>
                   <button
                     type="button"
                     onClick={() => saveStatus(order)}
-                    disabled={savingOrderId === order.id || selectedStatus === order.status}
+                    disabled={savingOrderId === order.id || selectedStatus === order.status || failedRazorpay}
                   >
                     {savingOrderId === order.id ? 'Saving…' : 'Save status'}
                   </button>
+                  {failedRazorpay && (
+                    <small role="status">Shipment status is locked until payment succeeds.</small>
+                  )}
                 </div>
               </section>
             );
           })}
+        </div>
+      )}
+    </article>
+  );
+}
+
+function ContactEnquiriesPanel({ enquiries }) {
+  return (
+    <article className="admin-panel admin-orders-panel">
+      <div className="admin-table-heading">
+        <div>
+          <h2 className="admin-panel-title">Customer Enquiries</h2>
+          <p>Review messages submitted through the contact form.</p>
+        </div>
+        <span className="admin-orders-count">{enquiries.length} enquiries</span>
+      </div>
+      {!enquiries.length ? (
+        <p className="admin-empty">There are no customer enquiries yet.</p>
+      ) : (
+        <div className="admin-order-list">
+          {enquiries.map(enquiry => (
+            <section className="admin-order-row" key={enquiry.id}>
+              <div className="admin-order-summary">
+                <strong>{enquiry.name}</strong>
+                <span>{enquiry.email} · {enquiry.phone}</span>
+                <small>{new Date(enquiry.created_at).toLocaleString()}</small>
+                <p style={{ margin: '10px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                  {enquiry.message}
+                </p>
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </article>
@@ -285,9 +326,11 @@ export default function AdminDashboardPage() {
   const [searchParams] = useSearchParams();
   const isAdmin = !!user?.is_superuser;
   const [orders, setOrders] = useState([]);
+  const [enquiries, setEnquiries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [enquiriesError, setEnquiriesError] = useState('');
   const [activeView, setActiveView] = useState(() => (
     searchParams.get('view') === 'orders' || !user?.is_superuser ? 'orders' : 'overview'
   ));
@@ -306,6 +349,18 @@ export default function AdminDashboardPage() {
     return data;
   }, [user.token]);
 
+  const requestEnquiries = useCallback(async () => {
+    const response = await fetch(ENQUIRIES_API_URL, {
+      headers: { Authorization: `Token ${user.token}` },
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || data.error || 'Unable to load customer enquiries.');
+    }
+    if (!Array.isArray(data)) throw new Error('The enquiries service returned an invalid response.');
+    return data;
+  }, [user.token]);
+
   const refreshOrders = () => {
     setRefreshing(true);
     setError('');
@@ -315,6 +370,11 @@ export default function AdminDashboardPage() {
         setError(loadError instanceof Error ? loadError.message : 'Unable to load dashboard orders.');
       })
       .finally(() => setRefreshing(false));
+    requestEnquiries()
+      .then(setEnquiries)
+      .catch(loadError => {
+        setEnquiriesError(loadError instanceof Error ? loadError.message : 'Unable to load customer enquiries.');
+      });
   };
 
   useEffect(() => {
@@ -331,15 +391,28 @@ export default function AdminDashboardPage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    requestEnquiries()
+      .then(data => {
+        if (!cancelled) {
+          setEnquiries(data);
+          setEnquiriesError('');
+        }
+      })
+      .catch(loadError => {
+        if (!cancelled) {
+          setEnquiriesError(loadError instanceof Error ? loadError.message : 'Unable to load customer enquiries.');
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [requestOrders]);
+  }, [requestOrders, requestEnquiries]);
 
   const filterOptions = useMemo(() => ({
     categories: [...new Set(orders.flatMap(getOrderCategories))].sort(),
     regions: [...new Set(orders.map(getRegion).filter(region => region !== 'Unknown'))].sort(),
     payments: [...new Set(orders.map(order => order.payment_method).filter(Boolean))].sort(),
+    paymentStatuses: [...new Set(orders.map(order => order.payment_status).filter(Boolean))].sort(),
     statuses: [...new Set(orders.map(order => order.status).filter(Boolean))].sort(),
   }), [orders]);
 
@@ -347,8 +420,9 @@ export default function AdminDashboardPage() {
     const categoryMatches = !filters.category || getOrderCategories(order).includes(filters.category);
     const regionMatches = !filters.region || getRegion(order) === filters.region;
     const paymentMatches = !filters.payment || order.payment_method === filters.payment;
+    const paymentStatusMatches = !filters.paymentStatus || order.payment_status === filters.paymentStatus;
     const statusMatches = !filters.status || order.status === filters.status;
-    return categoryMatches && regionMatches && paymentMatches && statusMatches;
+    return categoryMatches && regionMatches && paymentMatches && paymentStatusMatches && statusMatches;
   }), [orders, filters]);
 
   const metrics = useMemo(() => {
@@ -461,13 +535,35 @@ export default function AdminDashboardPage() {
   const updateFilter = (key, value) => setFilters(current => ({ ...current, [key]: value }));
   const visibleNavItems = isAdmin
     ? NAV_ITEMS
-    : NAV_ITEMS.filter(item => item.id === 'orders');
-  const selectedView = isAdmin || activeView === 'profile' ? activeView : 'orders';
+    : NAV_ITEMS.filter(item => ['orders', 'enquiries'].includes(item.id));
+  const selectedView = isAdmin || ['profile', 'enquiries'].includes(activeView) ? activeView : 'orders';
   const activeViewLabel = selectedView === 'profile'
     ? 'Profile'
     : NAV_ITEMS.find(item => item.id === selectedView)?.label || 'Overview';
 
   const renderView = () => {
+    if (selectedView === 'enquiries') {
+      return <ContactEnquiriesPanel enquiries={enquiries} />;
+    }
+    if (selectedView === 'profile') {
+      return (
+        <section className="admin-panel admin-profile-panel">
+          <div className="admin-profile-heading">
+            <span className="admin-profile-avatar">{(user.name || 'A').slice(0, 1).toUpperCase()}</span>
+            <div>
+              <p>{isAdmin ? 'ADMINISTRATOR PROFILE' : 'STAFF PROFILE'}</p>
+              <h2>{user.name}</h2>
+              <span>{isAdmin ? 'Administrator account' : 'Staff account'}</span>
+            </div>
+          </div>
+          <div className="admin-profile-details">
+            <div><span>Full name</span><strong>{user.name || '—'}</strong></div>
+            <div><span>Email address</span><strong>{user.email || '—'}</strong></div>
+            <div><span>Account access</span><strong>{isAdmin ? 'Dashboard and order management' : 'Order management'}</strong></div>
+          </div>
+        </section>
+      );
+    }
     if (selectedView === 'orders' || !isAdmin) {
       return (
         <ManageOrdersPanel
@@ -477,25 +573,6 @@ export default function AdminDashboardPage() {
             order.id === updatedOrder.id ? updatedOrder : order
           ))}
         />
-      );
-    }
-    if (selectedView === 'profile') {
-      return (
-        <section className="admin-panel admin-profile-panel">
-          <div className="admin-profile-heading">
-            <span className="admin-profile-avatar">{(user.name || 'A').slice(0, 1).toUpperCase()}</span>
-            <div>
-              <p>ADMINISTRATOR PROFILE</p>
-              <h2>{user.name}</h2>
-              <span>Staff account</span>
-            </div>
-          </div>
-          <div className="admin-profile-details">
-            <div><span>Full name</span><strong>{user.name || '—'}</strong></div>
-            <div><span>Email address</span><strong>{user.email || '—'}</strong></div>
-            <div><span>Account access</span><strong>{isAdmin ? 'Dashboard and order management' : 'Order management'}</strong></div>
-          </div>
-        </section>
       );
     }
     if (activeView === 'data') return <DataTable orders={filteredOrders} />;
@@ -634,12 +711,20 @@ export default function AdminDashboardPage() {
           )}
         </header>
 
-        {selectedView !== 'profile' && (isAdmin || selectedView === 'orders') && (
+        {selectedView === 'enquiries' && enquiriesError && (
+          <div role="alert" className="admin-error">
+            <span>{enquiriesError}</span>
+            <button type="button" onClick={refreshOrders}>Retry</button>
+          </div>
+        )}
+
+        {selectedView !== 'profile' && selectedView !== 'enquiries' && (isAdmin || selectedView === 'orders') && (
         <section className="admin-filters" aria-label="Filter dashboard data">
           {[
             ['category', 'Category', filterOptions.categories],
             ['region', 'Region', filterOptions.regions],
             ['payment', 'Payment method', filterOptions.payments],
+            ['paymentStatus', 'Payment status', filterOptions.paymentStatuses],
             ['status', 'Ship status', filterOptions.statuses],
           ].map(([key, label, options]) => (
             <label className="admin-filter" key={key}>
@@ -665,15 +750,17 @@ export default function AdminDashboardPage() {
             <p role="status" className="admin-loading">Loading dashboard data…</p>
           ) : (
             <>
-              <div className="admin-section-intro">
-                <div>
-                  <h2>{activeViewLabel}</h2>
-                  <p>{selectedView === 'profile'
-                    ? `View your ${isAdmin ? 'administrator' : 'staff'} account information.`
-                    : `Live summary from ${filteredOrders.length} matching customer order${filteredOrders.length === 1 ? '' : 's'}.`}</p>
+              {!['enquiries', 'profile'].includes(selectedView) && (
+                <div className="admin-section-intro">
+                  <div>
+                    <h2>{activeViewLabel}</h2>
+                    <p>{selectedView === 'profile'
+                      ? `View your ${isAdmin ? 'administrator' : 'staff'} account information.`
+                      : `Live summary from ${filteredOrders.length} matching customer order${filteredOrders.length === 1 ? '' : 's'}.`}</p>
+                  </div>
+                  <span className="admin-data-badge"><span /> Live order data</span>
                 </div>
-                <span className="admin-data-badge"><span /> Live order data</span>
-              </div>
+              )}
               {renderView()}
             </>
           )}
