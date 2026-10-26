@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-const API_URL = 'http://127.0.0.1:8000/api/admin/orders/';
+const API_URL = `${import.meta.env.VITE_API_BASE_URL}/api/admin/orders/`;
 const ORDER_STATUSES = ['Placed', 'Dispatched', 'In Transit', 'Delivered'];
 
 export default function AdminOrdersPage() {

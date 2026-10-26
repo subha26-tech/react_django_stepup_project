@@ -16,7 +16,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import './AdminDashboardPage.css';
 
-const API_URL = 'http://127.0.0.1:8000/api/admin/orders/';
+const API_URL = `${import.meta.env.VITE_API_BASE_URL}/api/admin/orders/`;
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'products', label: 'Product Analysis', icon: Boxes },

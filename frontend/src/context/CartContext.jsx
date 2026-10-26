@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useAuth } from './AuthContext';
 
 const CartContext = createContext();
-const CART_API_URL = 'http://127.0.0.1:8000/api/cart';
+const CART_API_URL = `${import.meta.env.VITE_API_BASE_URL}/api/cart`;
 
 const readCart = () => {
   try {
