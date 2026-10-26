@@ -4,8 +4,33 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'stepup_backend.settings')
 django.setup()
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from api.models import Category, Brand, Product, Review, Order, OrderItem
+
+def create_admin_user():
+    User = get_user_model()
+
+    username = os.environ.get("SUPERUSER_USERNAME", "stepupadmin")
+    email = os.environ.get("SUPERUSER_EMAIL", "admin@example.com")
+    password = os.environ.get("SUPERUSER_PASSWORD")
+
+    if User.objects.filter(username=username).exists():
+        print(f"Admin user '{username}' already exists. Skipping.")
+        return
+
+    if not password:
+        print("DJANGO_SUPERUSER_PASSWORD is not set. Skipping admin creation.")
+        return
+
+    User.objects.create_superuser(
+        username=username,
+        email=email,
+        password=password,
+    )
+
+    print(f"Superuser '{username}' created successfully.")
+
 
 def seed():
     # print("Clearing old data...")
@@ -15,6 +40,8 @@ def seed():
     # Product.objects.all().delete()
     # Brand.objects.all().delete()
     # Category.objects.all().delete()
+
+    create_admin_user()
 
      # Skip seeding if the database already contains catalog data.
     if (
