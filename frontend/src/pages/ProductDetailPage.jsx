@@ -72,7 +72,7 @@ export default function ProductDetailPage() {
   useEffect(() => {
     window.scrollTo(0, 0);
     const prodId = id || 1;
-    axios.get(`http://127.0.0.1:8000/api/products/${prodId}/`)
+    axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/products/${prodId}/`)
       .then(res => {
         setProduct(res.data);
         if (res.data.colors && res.data.colors.length > 0) {

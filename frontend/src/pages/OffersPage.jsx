@@ -19,7 +19,7 @@ export default function OffersPage() {
 
   useEffect(() => {
     setLoading(true);
-    axios.get('http://127.0.0.1:8000/api/products/?trending=true')
+    axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/products/?trending=true`)
       .then(res => {
         setOfferProducts(res.data);
       })

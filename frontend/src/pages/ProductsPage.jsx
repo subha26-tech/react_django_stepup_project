@@ -39,7 +39,7 @@ export default function ProductsPage() {
     if (isOffer) params.append('offer', isOffer);
     if (isNew) params.append('new', isNew);
 
-    axios.get(`http://127.0.0.1:8000/api/products/?${params.toString()}`)
+    axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/products/?${params.toString()}`)
       .then(res => {
         setProducts(res.data);
       })

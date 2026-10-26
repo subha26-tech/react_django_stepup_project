@@ -19,7 +19,7 @@ export default function TrackingPage() {
 
     let cancelled = false;
     const cleanNo = displayOrderNo.replace('#', '');
-    axios.get(`http://127.0.0.1:8000/api/orders/${cleanNo}/`, {
+    axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/orders/${cleanNo}/`, {
       headers: { Authorization: `Token ${user?.token}` },
     })
       .then(res => {

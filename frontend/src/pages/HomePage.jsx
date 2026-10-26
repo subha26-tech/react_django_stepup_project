@@ -60,7 +60,7 @@ export default function HomePage() {
   ];
 
   useEffect(() => {
-    axios.get('http://127.0.0.1:8000/api/products/?trending=true')
+    axios.get(`${import.meta.env.VITE_API_BASE_URL}/api/products/?trending=true`)
       .then(res => {
         if (res.data && res.data.length > 0) {
           // Sort or pick the 8 specific products
